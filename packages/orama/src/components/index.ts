@@ -17,9 +17,17 @@ import {
   removeDocumentByWord as radixRemoveDocument,
 } from '../trees/radix.js'
 import {
+  create as flatCreate,
+  filter as flatFilter,
+  insert as flatInsert,
+  FlatTree,
+  removeDocument as flatRemoveDocument,
+} from '../trees/flat.js'
+import {
   ArraySearchableType,
   BM25Params,
   ComparisonOperator,
+  EnumComparisonOperator,
   IIndex,
   OpaqueDocumentStore,
   OpaqueIndex,
@@ -59,7 +67,7 @@ export type BooleanIndex = {
 
 export interface Index extends OpaqueIndex {
   sharedInternalDocumentStore: InternalDocumentIDStore
-  indexes: Record<string, RadixNode | AVLNode<number, InternalDocumentID[]> | BooleanIndex>
+  indexes: Record<string, RadixNode | AVLNode<number, InternalDocumentID[]> | BooleanIndex | FlatTree>
   searchableProperties: string[]
   searchablePropertiesWithTypes: Record<string, SearchableType>
   frequencies: FrequencyMap
@@ -207,7 +215,7 @@ export async function create(
         break
       case 'number':
       case 'number[]':
-        index.indexes[path] = avlCreate<number, InternalDocumentID[]>(0, [])
+        index.indexes[path] = avlCreate(0, [])
         break
       case 'string':
       case 'string[]':
@@ -216,6 +224,9 @@ export async function create(
         index.frequencies[path] = {}
         index.tokenOccurrences[path] = {}
         index.fieldLengths[path] = {}
+        break
+      case 'enum':
+        index.indexes[path] = flatCreate()
         break
       default:
         throw createError('INVALID_SCHEMA_TYPE', Array.isArray(type) ? 'array' : (type as unknown as string), path)
@@ -248,7 +259,7 @@ async function insertScalar(
       break
     }
     case 'number':
-      avlInsert(index.indexes[prop] as AVLNode<number, number[]>, value as number, [internalId])
+      avlInsert(index.indexes[prop] as AVLNode<number, InternalDocumentID[]>, value as number, [internalId])
       break
     case 'string': {
       const tokens = await tokenizer.tokenize(value as string, language, prop)
@@ -260,6 +271,10 @@ async function insertScalar(
         radixInsert(index.indexes[prop] as RadixNode, token, internalId)
       }
 
+      break
+    }
+    case 'enum': {
+      flatInsert(index.indexes[prop] as FlatTree, value as ScalarSearchableType, internalId)
       break
     }
   }
@@ -314,7 +329,7 @@ async function removeScalar(
 
   switch (schemaType) {
     case 'number': {
-      avlRemoveDocument(index.indexes[prop] as AVLNode<number, InternalDocumentID[]>, internalId, value)
+      avlRemoveDocument(index.indexes[prop] as AVLNode<number, InternalDocumentID[]>, internalId, value as number)
       return true
     }
     case 'boolean': {
@@ -334,6 +349,10 @@ async function removeScalar(
         radixRemoveDocument(index.indexes[prop] as RadixNode, token, internalId)
       }
 
+      return true
+    }
+    case 'enum': {
+      flatRemoveDocument(index.indexes[prop] as unknown as FlatTree, internalId, value as ScalarSearchableType)
       return true
     }
   }
@@ -403,7 +422,7 @@ export async function search<D extends OpaqueDocumentStore, AggValue>(
 export async function searchByWhereClause<I extends OpaqueIndex, D extends OpaqueDocumentStore, AggValue>(
   context: SearchContext<I, D, AggValue>,
   index: Index,
-  filters: Record<string, boolean | ComparisonOperator>,
+  filters: Record<string, boolean | ComparisonOperator | EnumComparisonOperator>,
 ): Promise<number[]> {
   const filterKeys = Object.keys(filters)
 
@@ -452,8 +471,14 @@ export async function searchByWhereClause<I extends OpaqueIndex, D extends Opaqu
       throw createError('INVALID_FILTER_OPERATION', operationKeys.length)
     }
 
+    if ('foo' in index.indexes[param]) {
+      const tree = index.indexes[param] as FlatTree
+      filtersMap[param].push(...flatFilter(tree, operation as EnumComparisonOperator))
+      continue
+    }
+
     const operationOpt = operationKeys[0] as keyof ComparisonOperator
-    const operationValue = operation[operationOpt]
+    const operationValue = (operation as ComparisonOperator)[operationOpt] as number
 
     const AVLNode = index.indexes[param] as AVLNode<number, InternalDocumentID[]>
 
@@ -488,7 +513,7 @@ export async function searchByWhereClause<I extends OpaqueIndex, D extends Opaqu
         break
       }
       case 'between': {
-        const [min, max] = operationValue as number[]
+        const [min, max] = operationValue as unknown as number[]
         const filteredIDs = avlRangeSearch(AVLNode, min, max)
         filtersMap[param].push(...filteredIDs)
       }

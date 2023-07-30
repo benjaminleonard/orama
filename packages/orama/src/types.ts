@@ -22,7 +22,7 @@ export interface Schema extends Record<string, SearchableType | Schema> {}
 // eslint-disable-next-line @typescript-eslint/no-empty-interface
 export interface Document extends Record<string, SearchableValue | Document | unknown> {}
 
-export type ScalarSearchableType = 'string' | 'number' | 'boolean'
+export type ScalarSearchableType = 'string' | 'number' | 'boolean' | 'enum'
 export type ArraySearchableType = 'string[]' | 'number[]' | 'boolean[]'
 export type SearchableType = ScalarSearchableType | ArraySearchableType
 
@@ -84,6 +84,11 @@ export type ComparisonOperator = {
   lte?: number
   eq?: number
   between?: [number, number]
+}
+
+export type EnumComparisonOperator = {
+  eq?: string | number | boolean
+  in?: (string | number | boolean)[]
 }
 
 /**
@@ -244,7 +249,7 @@ export type SearchParams<T = Result[]> = {
    *  }
    * });
    */
-  where?: Record<string, boolean | string | string[] | ComparisonOperator>
+  where?: Record<string, boolean | string | string[] | ComparisonOperator | EnumComparisonOperator>
 
   /**
    * Threshold to use for refining the search results.
@@ -462,7 +467,7 @@ export interface IIndex<I extends OpaqueIndex = OpaqueIndex> {
   searchByWhereClause<D extends OpaqueDocumentStore, AggValue = Result[]>(
     context: SearchContext<I, D, AggValue>,
     index: I,
-    filters: Record<string, boolean | string | string[] | ComparisonOperator>,
+    filters: Record<string, boolean | string | string[] | ComparisonOperator | EnumComparisonOperator>,
   ): SyncOrAsyncValue<InternalDocumentID[]>
 
   getSearchableProperties(index: I): SyncOrAsyncValue<string[]>

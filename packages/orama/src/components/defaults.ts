@@ -32,6 +32,10 @@ export async function validateSchema<S extends Schema = Schema>(doc: Document, s
       continue
     }
 
+    if (type === 'enum' && (typeOfValue === 'string' || typeOfValue === 'number')) {
+      continue
+    }
+
     const typeOfType = typeof type
 
     if (typeOfType === 'string' && isArrayType(type as SearchableType)) {
@@ -74,6 +78,7 @@ const IS_ARRAY_TYPE: Record<SearchableType, boolean> = {
   string: false,
   number: false,
   boolean: false,
+  enum: false,
   'string[]': true,
   'number[]': true,
   'boolean[]': true,
